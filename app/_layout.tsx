@@ -1,11 +1,12 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MusicPlayerProvider, useMusicPlayerContext } from '../src/context';
 import { MiniPlayer } from '../src/components';
 import { colors } from '../src/theme';
+import { setupTrackPlayer } from '../src/services/trackPlayerSetup';
 
 function MiniPlayerOverlay() {
   const { currentTrack, playback, togglePlayPause, next } =
@@ -63,6 +64,24 @@ function RootLayoutInner() {
 }
 
 export default function RootLayout() {
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+
+  useEffect(() => {
+    setupTrackPlayer().then((ready) => {
+      setIsPlayerReady(ready);
+    });
+  }, []);
+
+  if (!isPlayerReady) {
+    return (
+      <GestureHandlerRootView style={styles.root}>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <MusicPlayerProvider>
@@ -75,6 +94,12 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: colors.background,
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: colors.background,
   },
 });

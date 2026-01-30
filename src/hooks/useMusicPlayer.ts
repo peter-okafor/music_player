@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  useAudioPlayer,
-  useAudioPlayerStatus,
-  setAudioModeAsync,
-} from 'expo-audio';
+import TrackPlayer, {
+  State,
+  RepeatMode as RNTPRepeatMode,
+  usePlaybackState,
+  useProgress,
+  useActiveTrack,
+} from 'react-native-track-player';
 import { Track, RepeatMode, PlaybackState, QueueState } from '../types';
 
 export interface MusicPlayerActions {
@@ -14,6 +16,7 @@ export interface MusicPlayerActions {
   previous: () => void;
   seekTo: (seconds: number) => void;
   setQueue: (tracks: Track[], startIndex?: number) => void;
+  addToQueue: (tracks: Track[]) => void;
   selectTrack: (index: number) => void;
   toggleShuffle: () => void;
   cycleRepeatMode: () => void;
@@ -36,6 +39,29 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
+function toRNTPTrack(track: Track) {
+  return {
+    id: track.id,
+    url: track.uri,
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    artwork: track.artwork ?? undefined,
+    duration: track.duration,
+  };
+}
+
+function toRNTPRepeatMode(mode: RepeatMode): RNTPRepeatMode {
+  switch (mode) {
+    case 'off':
+      return RNTPRepeatMode.Off;
+    case 'all':
+      return RNTPRepeatMode.Queue;
+    case 'one':
+      return RNTPRepeatMode.Track;
+  }
+}
+
 export function useMusicPlayer(): MusicPlayer {
   const [queue, setQueueState] = useState<QueueState>({
     tracks: [],
@@ -44,8 +70,13 @@ export function useMusicPlayer(): MusicPlayer {
     repeatMode: 'off',
   });
 
-  const [originalOrder, setOriginalOrder] = useState<Track[]>([]);
-  const hasInitialized = useRef(false);
+  const originalOrderRef = useRef<Track[]>([]);
+  const isUpdatingQueue = useRef(false);
+
+  // RNTP hooks
+  const { state: playbackState } = usePlaybackState();
+  const { position, duration } = useProgress(250);
+  const activeTrack = useActiveTrack();
 
   const currentTrack = useMemo(
     () =>
@@ -55,167 +86,197 @@ export function useMusicPlayer(): MusicPlayer {
     [queue.currentIndex, queue.tracks]
   );
 
-  const audioSource = useMemo(
-    () => (currentTrack ? { uri: currentTrack.uri } : null),
-    [currentTrack]
-  );
-
-  const player = useAudioPlayer(audioSource, { updateInterval: 250 });
-  const status = useAudioPlayerStatus(player);
-
-  // Configure audio mode on mount
+  // Keep RNTP repeat mode in sync
   useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: true,
-      interruptionMode: 'doNotMix',
-    });
-  }, []);
+    TrackPlayer.setRepeatMode(toRNTPRepeatMode(queue.repeatMode));
+  }, [queue.repeatMode]);
 
-  // Auto-play when a new track source loads
+  // Sync currentIndex when RNTP auto-advances (e.g., track ends)
   useEffect(() => {
-    if (status.isLoaded && currentTrack && !hasInitialized.current) {
-      hasInitialized.current = true;
-      player.play();
+    if (!activeTrack || isUpdatingQueue.current) return;
+    const rntpIndex = queue.tracks.findIndex((t) => t.id === activeTrack.id);
+    if (rntpIndex >= 0 && rntpIndex !== queue.currentIndex) {
+      setQueueState((prev) => ({ ...prev, currentIndex: rntpIndex }));
     }
-  }, [status.isLoaded, currentTrack, player]);
+  }, [activeTrack, queue.tracks, queue.currentIndex]);
 
-  // Handle track end → advance to next
-  useEffect(() => {
-    if (!status.didJustFinish) return;
-
-    if (queue.repeatMode === 'one') {
-      player.seekTo(0);
-      player.play();
-      return;
-    }
-
-    const isLast = queue.currentIndex >= queue.tracks.length - 1;
-
-    if (isLast && queue.repeatMode === 'off') {
-      // Stop at end of queue
-      return;
-    }
-
-    // Advance: wrap to 0 if repeat-all and at end
-    const nextIndex = isLast ? 0 : queue.currentIndex + 1;
-    hasInitialized.current = false;
-    setQueueState((prev) => ({ ...prev, currentIndex: nextIndex }));
-  }, [status.didJustFinish, queue.currentIndex, queue.tracks.length, queue.repeatMode, player]);
+  // Derived playback state
+  const isPlaying = playbackState === State.Playing;
+  const isBuffering =
+    playbackState === State.Buffering || playbackState === State.Loading;
+  const isLoaded =
+    playbackState !== undefined &&
+    playbackState !== State.None &&
+    playbackState !== State.Error;
 
   const playback: PlaybackState = useMemo(
     () => ({
-      isPlaying: status.playing,
-      isLoaded: status.isLoaded,
-      isBuffering: status.isBuffering,
-      currentTime: status.currentTime,
-      duration: status.duration,
+      isPlaying,
+      isLoaded,
+      isBuffering,
+      currentTime: position,
+      duration,
     }),
-    [status.playing, status.isLoaded, status.isBuffering, status.currentTime, status.duration]
+    [isPlaying, isLoaded, isBuffering, position, duration]
   );
 
   // --- Actions ---
 
   const play = useCallback(() => {
-    player.play();
-  }, [player]);
+    TrackPlayer.play();
+  }, []);
 
   const pause = useCallback(() => {
-    player.pause();
-  }, [player]);
+    TrackPlayer.pause();
+  }, []);
 
   const togglePlayPause = useCallback(() => {
-    if (status.playing) {
-      player.pause();
+    if (isPlaying) {
+      TrackPlayer.pause();
     } else {
-      player.play();
+      TrackPlayer.play();
     }
-  }, [player, status.playing]);
+  }, [isPlaying]);
 
-  const next = useCallback(() => {
+  const next = useCallback(async () => {
     if (queue.tracks.length === 0) return;
     const isLast = queue.currentIndex >= queue.tracks.length - 1;
-    const nextIndex =
-      isLast && queue.repeatMode !== 'off' ? 0 : isLast ? queue.currentIndex : queue.currentIndex + 1;
-    if (nextIndex === queue.currentIndex && queue.repeatMode === 'one') {
-      player.seekTo(0);
-      player.play();
-      return;
-    }
-    hasInitialized.current = false;
-    setQueueState((prev) => ({ ...prev, currentIndex: nextIndex }));
-  }, [queue.currentIndex, queue.tracks.length, queue.repeatMode, player]);
 
-  const previous = useCallback(() => {
+    if (isLast && queue.repeatMode === 'off') return;
+
+    await TrackPlayer.skipToNext();
+    const nextIndex = isLast ? 0 : queue.currentIndex + 1;
+    setQueueState((prev) => ({ ...prev, currentIndex: nextIndex }));
+  }, [queue.currentIndex, queue.tracks.length, queue.repeatMode]);
+
+  const previous = useCallback(async () => {
     if (queue.tracks.length === 0) return;
 
-    // If we're more than 3 seconds in, restart current track
-    if (status.currentTime > 3) {
-      player.seekTo(0);
+    if (position > 3) {
+      await TrackPlayer.seekTo(0);
       return;
     }
 
     const isFirst = queue.currentIndex <= 0;
-    const prevIndex =
-      isFirst && queue.repeatMode !== 'off'
-        ? queue.tracks.length - 1
-        : isFirst
-          ? 0
-          : queue.currentIndex - 1;
-    hasInitialized.current = false;
-    setQueueState((prev) => ({ ...prev, currentIndex: prevIndex }));
-  }, [queue.currentIndex, queue.tracks.length, queue.repeatMode, status.currentTime, player]);
 
-  const seekTo = useCallback(
-    (seconds: number) => {
-      player.seekTo(seconds);
-    },
-    [player]
-  );
+    if (isFirst && queue.repeatMode === 'off') {
+      await TrackPlayer.seekTo(0);
+      return;
+    }
+
+    await TrackPlayer.skipToPrevious();
+    const prevIndex = isFirst
+      ? queue.tracks.length - 1
+      : queue.currentIndex - 1;
+    setQueueState((prev) => ({ ...prev, currentIndex: prevIndex }));
+  }, [queue.currentIndex, queue.tracks.length, queue.repeatMode, position]);
+
+  const seekTo = useCallback(async (seconds: number) => {
+    await TrackPlayer.seekTo(seconds);
+  }, []);
 
   const setQueue = useCallback(
-    (tracks: Track[], startIndex = 0) => {
-      setOriginalOrder(tracks);
-      hasInitialized.current = false;
+    async (tracks: Track[], startIndex = 0) => {
+      isUpdatingQueue.current = true;
+      originalOrderRef.current = tracks;
+
+      const orderedTracks = queue.shuffleEnabled
+        ? shuffleArray(tracks)
+        : tracks;
+
+      await TrackPlayer.reset();
+      await TrackPlayer.add(orderedTracks.map(toRNTPTrack));
+
+      if (startIndex > 0) {
+        await TrackPlayer.skip(startIndex);
+      }
+
+      await TrackPlayer.play();
+
       setQueueState((prev) => ({
         ...prev,
-        tracks: prev.shuffleEnabled ? shuffleArray(tracks) : tracks,
+        tracks: orderedTracks,
         currentIndex: startIndex,
       }));
+
+      isUpdatingQueue.current = false;
+    },
+    [queue.shuffleEnabled]
+  );
+
+  const addToQueue = useCallback(
+    async (tracks: Track[]) => {
+      if (tracks.length === 0) return;
+      isUpdatingQueue.current = true;
+
+      await TrackPlayer.add(tracks.map(toRNTPTrack));
+      originalOrderRef.current = [...originalOrderRef.current, ...tracks];
+
+      setQueueState((prev) => ({
+        ...prev,
+        tracks: [...prev.tracks, ...tracks],
+      }));
+
+      isUpdatingQueue.current = false;
     },
     []
   );
 
   const selectTrack = useCallback(
-    (index: number) => {
+    async (index: number) => {
       if (index < 0 || index >= queue.tracks.length) return;
-      hasInitialized.current = false;
+
+      isUpdatingQueue.current = true;
+
+      await TrackPlayer.skip(index);
+      await TrackPlayer.play();
+
       setQueueState((prev) => ({ ...prev, currentIndex: index }));
+
+      isUpdatingQueue.current = false;
     },
     [queue.tracks.length]
   );
 
-  const toggleShuffle = useCallback(() => {
+  const toggleShuffle = useCallback(async () => {
+    isUpdatingQueue.current = true;
+
     setQueueState((prev) => {
       const enabling = !prev.shuffleEnabled;
       const current = prev.tracks[prev.currentIndex];
 
+      let newTracks: Track[];
+      let newIndex: number;
+
       if (enabling) {
         const others = prev.tracks.filter((_, i) => i !== prev.currentIndex);
-        const shuffled = [current, ...shuffleArray(others)];
-        return { ...prev, shuffleEnabled: true, tracks: shuffled, currentIndex: 0 };
+        newTracks = [current, ...shuffleArray(others)];
+        newIndex = 0;
+      } else {
+        newTracks = originalOrderRef.current;
+        const idx = originalOrderRef.current.findIndex(
+          (t) => t.id === current?.id
+        );
+        newIndex = idx >= 0 ? idx : 0;
       }
 
-      // Restoring original order
-      const idx = originalOrder.findIndex((t) => t.id === current?.id);
+      // Sync RNTP queue asynchronously
+      (async () => {
+        await TrackPlayer.reset();
+        await TrackPlayer.add(newTracks.map(toRNTPTrack));
+        await TrackPlayer.skip(newIndex);
+        await TrackPlayer.play();
+        isUpdatingQueue.current = false;
+      })();
+
       return {
         ...prev,
-        shuffleEnabled: false,
-        tracks: originalOrder,
-        currentIndex: idx >= 0 ? idx : 0,
+        shuffleEnabled: enabling,
+        tracks: newTracks,
+        currentIndex: newIndex,
       };
     });
-  }, [originalOrder]);
+  }, []);
 
   const cycleRepeatMode = useCallback(() => {
     setQueueState((prev) => {
@@ -237,6 +298,7 @@ export function useMusicPlayer(): MusicPlayer {
     previous,
     seekTo,
     setQueue,
+    addToQueue,
     selectTrack,
     toggleShuffle,
     cycleRepeatMode,

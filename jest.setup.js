@@ -62,30 +62,84 @@ jest.mock('lucide-react-native', () => {
   };
 });
 
-// Mock expo-audio
-jest.mock('expo-audio', () => ({
-  useAudioPlayer: () => ({
-    play: jest.fn(),
-    pause: jest.fn(),
-    seekTo: jest.fn(),
-    replace: jest.fn(),
-    remove: jest.fn(),
-    loop: false,
-  }),
-  useAudioPlayerStatus: () => ({
-    playing: false,
-    isLoaded: false,
-    isBuffering: false,
-    currentTime: 0,
-    duration: 0,
-    didJustFinish: false,
-    playbackRate: 1,
-    mute: false,
-    loop: false,
-    shouldCorrectPitch: true,
-  }),
-  setAudioModeAsync: jest.fn(),
-}));
+// Mock react-native-track-player
+jest.mock('react-native-track-player', () => {
+  const State = {
+    None: 'none',
+    Playing: 'playing',
+    Paused: 'paused',
+    Stopped: 'stopped',
+    Buffering: 'buffering',
+    Loading: 'loading',
+    Error: 'error',
+    Ready: 'ready',
+    Ended: 'ended',
+  };
+
+  const RepeatMode = {
+    Off: 0,
+    Track: 1,
+    Queue: 2,
+  };
+
+  const Capability = {
+    Play: 'play',
+    Pause: 'pause',
+    Stop: 'stop',
+    SeekTo: 'seekto',
+    Skip: 'skip',
+    SkipToNext: 'skip_to_next',
+    SkipToPrevious: 'skip_to_previous',
+  };
+
+  const Event = {
+    RemotePlay: 'remote-play',
+    RemotePause: 'remote-pause',
+    RemoteStop: 'remote-stop',
+    RemoteNext: 'remote-next',
+    RemotePrevious: 'remote-previous',
+    RemoteSeek: 'remote-seek',
+    PlaybackState: 'playback-state',
+    PlaybackActiveTrackChanged: 'playback-active-track-changed',
+  };
+
+  const AppKilledPlaybackBehavior = {
+    ContinuePlayback: 'continue-playback',
+    PausePlayback: 'pause-playback',
+    StopPlaybackAndRemoveNotification: 'stop-playback-and-remove-notification',
+  };
+
+  return {
+    __esModule: true,
+    default: {
+      setupPlayer: jest.fn().mockResolvedValue(undefined),
+      updateOptions: jest.fn().mockResolvedValue(undefined),
+      add: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+      skip: jest.fn().mockResolvedValue(undefined),
+      skipToNext: jest.fn().mockResolvedValue(undefined),
+      skipToPrevious: jest.fn().mockResolvedValue(undefined),
+      play: jest.fn().mockResolvedValue(undefined),
+      pause: jest.fn().mockResolvedValue(undefined),
+      stop: jest.fn().mockResolvedValue(undefined),
+      seekTo: jest.fn().mockResolvedValue(undefined),
+      setRepeatMode: jest.fn().mockResolvedValue(undefined),
+      getActiveTrack: jest.fn().mockResolvedValue(undefined),
+      getProgress: jest.fn().mockResolvedValue({ position: 0, duration: 0, buffered: 0 }),
+      getQueue: jest.fn().mockResolvedValue([]),
+      registerPlaybackService: jest.fn(),
+      addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+    },
+    State,
+    RepeatMode,
+    Capability,
+    Event,
+    AppKilledPlaybackBehavior,
+    usePlaybackState: jest.fn(() => ({ state: State.None })),
+    useProgress: jest.fn(() => ({ position: 0, duration: 0, buffered: 0 })),
+    useActiveTrack: jest.fn(() => undefined),
+  };
+});
 
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({

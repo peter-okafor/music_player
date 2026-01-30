@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { useMusicPlayerContext } from '../src/context';
 import { TrackList } from '../src/components';
@@ -6,7 +6,7 @@ import { useDeviceAudio } from '../src/hooks';
 import { colors, spacing } from '../src/theme';
 
 export default function HomeScreen() {
-  const { setQueue, selectTrack, currentTrack, playback, queue } =
+  const { setQueue, addToQueue, selectTrack, currentTrack, playback, queue } =
     useMusicPlayerContext();
   const {
     tracks: deviceTracks,
@@ -18,11 +18,20 @@ export default function HomeScreen() {
     hasMore,
   } = useDeviceAudio();
 
+  const queuedCountRef = useRef(0);
+
   useEffect(() => {
-    if (deviceTracks.length > 0) {
+    if (deviceTracks.length === 0) return;
+
+    if (queuedCountRef.current === 0) {
       setQueue(deviceTracks);
+      queuedCountRef.current = deviceTracks.length;
+    } else if (deviceTracks.length > queuedCountRef.current) {
+      const newTracks = deviceTracks.slice(queuedCountRef.current);
+      addToQueue(newTracks);
+      queuedCountRef.current = deviceTracks.length;
     }
-  }, [deviceTracks, setQueue]);
+  }, [deviceTracks, setQueue, addToQueue]);
 
   const handleTrackPress = useCallback(
     (index: number) => {
