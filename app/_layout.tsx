@@ -3,6 +3,7 @@ import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { MusicPlayerProvider, useMusicPlayerContext } from '../src/context';
 import { MiniPlayer } from '../src/components';
 import { colors } from '../src/theme';
@@ -83,11 +84,13 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <MusicPlayerProvider>
-        <RootLayoutInner />
-      </MusicPlayerProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={styles.root}>
+        <MusicPlayerProvider>
+          <RootLayoutInner />
+        </MusicPlayerProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }
 

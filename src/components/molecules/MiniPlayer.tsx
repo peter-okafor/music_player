@@ -3,12 +3,11 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Play, Pause, SkipForward, Music } from 'lucide-react-native';
 import Animated, {
-  FadeIn,
-  FadeOut,
   SlideInDown,
   SlideOutDown,
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Track } from '../../types';
 import { ProgressBar } from '../atoms/ProgressBar';
 import { IconButton } from '../atoms/IconButton';
@@ -32,13 +31,14 @@ function MiniPlayerComponent({
   testID,
 }: MiniPlayerProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
     <Animated.View
       testID={testID}
       entering={SlideInDown.duration(300)}
       exiting={SlideOutDown.duration(200)}
-      style={styles.wrapper}
+      style={[styles.wrapper, { paddingBottom: insets.bottom }]}
     >
       <ProgressBar progress={progress} height={2} />
       <Pressable

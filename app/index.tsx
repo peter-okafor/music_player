@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMusicPlayerContext } from '../src/context';
 import { TrackList } from '../src/components';
 import { useDeviceAudio } from '../src/hooks';
@@ -17,6 +18,7 @@ export default function HomeScreen() {
     loadMore,
     hasMore,
   } = useDeviceAudio();
+  const insets = useSafeAreaInsets();
 
   const queuedCountRef = useRef(0);
 
@@ -105,7 +107,7 @@ export default function HomeScreen() {
         isPlaying={playback.isPlaying}
         onTrackPress={handleTrackPress}
         onEndReached={handleEndReached}
-        bottomPadding={currentTrack ? 80 : 0}
+        bottomPadding={currentTrack ? 80 + insets.bottom : 0}
       />
       {isLoading && deviceTracks.length > 0 && (
         <View style={styles.footerLoader}>
