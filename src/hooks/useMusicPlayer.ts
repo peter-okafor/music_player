@@ -69,6 +69,7 @@ export function useMusicPlayer(): MusicPlayer {
     shuffleEnabled: false,
     repeatMode: 'off',
   });
+  const [optimisticIsPlaying, setOptimisticIsPlaying] = useState<boolean | null>(null);
 
   const originalOrderRef = useRef<Track[]>([]);
   const isUpdatingQueue = useRef(false);
@@ -100,14 +101,54 @@ export function useMusicPlayer(): MusicPlayer {
     }
   }, [activeTrack, queue.tracks, queue.currentIndex]);
 
+  // Hydrate state from native player on mount
+  useEffect(() => {
+    async function hydrate() {
+      try {
+        const currentQueue = await TrackPlayer.getQueue();
+        const currentIndex = await TrackPlayer.getActiveTrackIndex();
+
+        if (currentQueue.length > 0) {
+          const mappedTracks: Track[] = currentQueue.map((t) => ({
+            id: t.id || 'unknown',
+            uri: typeof t.url === 'string' ? t.url : '',
+            title: t.title || 'Unknown',
+            artist: t.artist || 'Unknown',
+            album: t.album || 'Unknown',
+            artwork: typeof t.artwork === 'string' ? t.artwork : null,
+            duration: t.duration || 0,
+          }));
+
+          setQueueState((prev) => ({
+            ...prev,
+            tracks: mappedTracks,
+            currentIndex: currentIndex ?? 0,
+          }));
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate player state:', error);
+      }
+    }
+
+    hydrate();
+  }, []);
+
   // Derived playback state
-  const isPlaying = playbackState === State.Playing;
+  const actualIsPlaying = playbackState === State.Playing;
+  const isPlaying = optimisticIsPlaying !== null ? optimisticIsPlaying : actualIsPlaying;
   const isBuffering =
     playbackState === State.Buffering || playbackState === State.Loading;
   const isLoaded =
     playbackState !== undefined &&
     playbackState !== State.None &&
     playbackState !== State.Error;
+
+  // Reset optimistic state when actual state catches up
+  useEffect(() => {
+    if (optimisticIsPlaying !== null && optimisticIsPlaying === actualIsPlaying) {
+      setOptimisticIsPlaying(null);
+    }
+  }, [actualIsPlaying, optimisticIsPlaying]);
 
   const playback: PlaybackState = useMemo(
     () => ({
@@ -122,21 +163,31 @@ export function useMusicPlayer(): MusicPlayer {
 
   // --- Actions ---
 
-  const play = useCallback(() => {
-    TrackPlayer.play();
+  const play = useCallback(async () => {
+    setOptimisticIsPlaying(true);
+    await TrackPlayer.play();
   }, []);
 
-  const pause = useCallback(() => {
-    TrackPlayer.pause();
+  const pause = useCallback(async () => {
+    setOptimisticIsPlaying(false);
+    await TrackPlayer.pause();
   }, []);
 
-  const togglePlayPause = useCallback(() => {
-    if (isPlaying) {
-      TrackPlayer.pause();
-    } else {
-      TrackPlayer.play();
+  const togglePlayPause = useCallback(async () => {
+    try {
+      const state = await TrackPlayer.getPlaybackState();
+
+      if (state.state === State.Playing || state.state === State.Buffering || state.state === State.Loading) {
+        setOptimisticIsPlaying(false);
+        await TrackPlayer.pause();
+      } else {
+        setOptimisticIsPlaying(true);
+        await TrackPlayer.play();
+      }
+    } catch (error) {
+      console.error('Error toggling play/pause:', error);
     }
-  }, [isPlaying]);
+  }, []);
 
   const next = useCallback(async () => {
     if (queue.tracks.length === 0) return;
@@ -199,7 +250,10 @@ export function useMusicPlayer(): MusicPlayer {
         currentIndex: startIndex,
       }));
 
-      isUpdatingQueue.current = false;
+      // Delay resetting the flag to ensure state update is processed first
+      queueMicrotask(() => {
+        isUpdatingQueue.current = false;
+      });
     },
     [queue.shuffleEnabled]
   );
@@ -217,7 +271,10 @@ export function useMusicPlayer(): MusicPlayer {
         tracks: [...prev.tracks, ...tracks],
       }));
 
-      isUpdatingQueue.current = false;
+      // Delay resetting the flag to ensure state update is processed first
+      queueMicrotask(() => {
+        isUpdatingQueue.current = false;
+      });
     },
     []
   );
@@ -233,7 +290,10 @@ export function useMusicPlayer(): MusicPlayer {
 
       setQueueState((prev) => ({ ...prev, currentIndex: index }));
 
-      isUpdatingQueue.current = false;
+      // Delay resetting the flag to ensure state update is processed first
+      queueMicrotask(() => {
+        isUpdatingQueue.current = false;
+      });
     },
     [queue.tracks.length]
   );
@@ -266,7 +326,10 @@ export function useMusicPlayer(): MusicPlayer {
         await TrackPlayer.add(newTracks.map(toRNTPTrack));
         await TrackPlayer.skip(newIndex);
         await TrackPlayer.play();
-        isUpdatingQueue.current = false;
+        // Delay resetting the flag to ensure state update is processed first
+        queueMicrotask(() => {
+          isUpdatingQueue.current = false;
+        });
       })();
 
       return {

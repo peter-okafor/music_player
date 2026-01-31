@@ -1,32 +1,56 @@
-import TrackPlayer, { Event } from 'react-native-track-player';
+import TrackPlayer, { Event, State } from 'react-native-track-player';
 
 export async function PlaybackService() {
   TrackPlayer.addEventListener(Event.RemotePlay, () => {
-    TrackPlayer.play();
+    try {
+      TrackPlayer.play();
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemotePlay', e);
+    }
   });
 
   TrackPlayer.addEventListener(Event.RemotePause, () => {
-    TrackPlayer.pause();
+    try {
+      TrackPlayer.pause();
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemotePause', e);
+    }
   });
 
   TrackPlayer.addEventListener(Event.RemoteStop, () => {
-    TrackPlayer.stop();
+    try {
+      TrackPlayer.stop();
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemoteStop', e);
+    }
   });
 
   TrackPlayer.addEventListener(Event.RemoteNext, () => {
-    TrackPlayer.skipToNext();
+    try {
+      TrackPlayer.skipToNext();
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemoteNext', e);
+    }
   });
 
   TrackPlayer.addEventListener(Event.RemotePrevious, async () => {
-    const { position } = await TrackPlayer.getProgress();
-    if (position > 3) {
-      await TrackPlayer.seekTo(0);
-    } else {
-      await TrackPlayer.skipToPrevious();
+    try {
+      const { position } = await TrackPlayer.getProgress();
+      if (position > 3) {
+        await TrackPlayer.seekTo(0);
+      } else {
+        await TrackPlayer.skipToPrevious();
+      }
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemotePrevious', e);
     }
   });
 
   TrackPlayer.addEventListener(Event.RemoteSeek, (event) => {
-    TrackPlayer.seekTo(event.position);
+    try {
+      TrackPlayer.seekTo(event.position);
+    } catch (e) {
+      console.warn('PlaybackService: Error on RemoteSeek', e);
+    }
   });
 }
