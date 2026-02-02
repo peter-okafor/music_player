@@ -136,4 +136,14 @@ const styles = StyleSheet.create({
   },
 });
 
-export const MiniPlayer = memo(MiniPlayerComponent);
+export const MiniPlayer = memo(
+  MiniPlayerComponent,
+  (prevProps, nextProps) => {
+    // Only re-render if these specific props change
+    return (
+      prevProps.track.id === nextProps.track.id &&
+      prevProps.isPlaying === nextProps.isPlaying &&
+      prevProps.progress === nextProps.progress
+    );
+  }
+);

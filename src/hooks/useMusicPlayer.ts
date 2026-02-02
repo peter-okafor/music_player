@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TrackPlayer, {
   State,
+  Event,
   RepeatMode as RNTPRepeatMode,
   usePlaybackState,
   useProgress,
-  useActiveTrack,
+  useTrackPlayerEvents,
 } from 'react-native-track-player';
 import { Track, RepeatMode, PlaybackState, QueueState } from '../types';
 
@@ -77,7 +78,6 @@ export function useMusicPlayer(): MusicPlayer {
   // RNTP hooks
   const { state: playbackState } = usePlaybackState();
   const { position, duration } = useProgress(250);
-  const activeTrack = useActiveTrack();
 
   const currentTrack = useMemo(
     () =>
@@ -92,14 +92,91 @@ export function useMusicPlayer(): MusicPlayer {
     TrackPlayer.setRepeatMode(toRNTPRepeatMode(queue.repeatMode));
   }, [queue.repeatMode]);
 
-  // Sync currentIndex when RNTP auto-advances (e.g., track ends)
+  // Poll for track changes since events may not fire reliably for automatic progression
   useEffect(() => {
-    if (!activeTrack || isUpdatingQueue.current) return;
-    const rntpIndex = queue.tracks.findIndex((t) => t.id === activeTrack.id);
-    if (rntpIndex >= 0 && rntpIndex !== queue.currentIndex) {
-      setQueueState((prev) => ({ ...prev, currentIndex: rntpIndex }));
+    let wasPlayingRef = false;
+
+    const interval = setInterval(async () => {
+      if (isUpdatingQueue.current) return;
+
+      try {
+        const activeIndex = await TrackPlayer.getActiveTrackIndex();
+        const state = await TrackPlayer.getPlaybackState();
+        const currentlyPlaying = state.state === State.Playing || state.state === State.Buffering || state.state === State.Loading;
+
+        // Store if we're currently playing for next iteration
+        const wasPlaying = wasPlayingRef;
+        wasPlayingRef = currentlyPlaying;
+
+        if (activeIndex !== null && activeIndex !== undefined) {
+          setQueueState((prev) => {
+            if (activeIndex !== prev.currentIndex && activeIndex >= 0 && activeIndex < prev.tracks.length) {
+              console.log(`🎵 Track changed (polling): ${prev.tracks[activeIndex]?.title} (index: ${activeIndex})`);
+
+              // If we were playing before the track change, auto-play the new track
+              if (wasPlaying || currentlyPlaying) {
+                console.log('🎵 Auto-playing new track after automatic change');
+                TrackPlayer.play().catch(e => console.warn('Failed to auto-play:', e));
+              }
+
+              // Reset optimistic state when track changes to allow actual state to show
+              setOptimisticIsPlaying(null);
+              return { ...prev, currentIndex: activeIndex };
+            }
+            return prev;
+          });
+        }
+      } catch (error) {
+        // Ignore errors during polling
+      }
+    }, 500); // Poll every 500ms
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for track changes (automatic or manual) and sync currentIndex
+  useTrackPlayerEvents(
+    [Event.PlaybackActiveTrackChanged],
+    async (event) => {
+      console.log('Received TrackPlayer event:', event);
+      if (event.type === Event.PlaybackActiveTrackChanged && !isUpdatingQueue.current) {
+        const newTrack = event.track;
+
+        if (newTrack && typeof newTrack === 'object' && 'id' in newTrack) {
+          setQueueState((prev) => {
+            const newIndex = prev.tracks.findIndex((t) => t.id === newTrack.id);
+
+            if (newIndex >= 0 && newIndex !== prev.currentIndex) {
+              console.log(`🎵 Track changed (event): ${prev.tracks[newIndex]?.title} (index: ${newIndex})`);
+              // Reset optimistic state when track changes to allow actual state to show
+              setOptimisticIsPlaying(null);
+              return { ...prev, currentIndex: newIndex };
+            }
+
+            return prev;
+          });
+        } else if (newTrack === null || newTrack === undefined) {
+          // Track changed to null/undefined - verify actual active track from native player
+          try {
+            const activeIndex = await TrackPlayer.getActiveTrackIndex();
+            if (activeIndex !== null && activeIndex !== undefined) {
+              setQueueState((prev) => {
+                if (activeIndex >= 0 && activeIndex < prev.tracks.length && activeIndex !== prev.currentIndex) {
+                  console.log(`🎵 Track changed via index: ${prev.tracks[activeIndex]?.title} (index: ${activeIndex})`);
+                  // Reset optimistic state when track changes to allow actual state to show
+                  setOptimisticIsPlaying(null);
+                  return { ...prev, currentIndex: activeIndex };
+                }
+                return prev;
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to get active track index:', error);
+          }
+        }
+      }
     }
-  }, [activeTrack, queue.tracks, queue.currentIndex]);
+  );
 
   // Hydrate state from native player on mount
   useEffect(() => {
@@ -146,9 +223,15 @@ export function useMusicPlayer(): MusicPlayer {
   // Reset optimistic state when actual state catches up
   useEffect(() => {
     if (optimisticIsPlaying !== null && optimisticIsPlaying === actualIsPlaying) {
+      console.log('🎵 Resetting optimistic state - actual state caught up');
       setOptimisticIsPlaying(null);
     }
   }, [actualIsPlaying, optimisticIsPlaying]);
+
+  // Log playback state changes for debugging
+  useEffect(() => {
+    console.log(`🎵 Playback state: ${playbackState}, actualIsPlaying: ${actualIsPlaying}, optimisticIsPlaying: ${optimisticIsPlaying}, isPlaying: ${isPlaying}`);
+  }, [playbackState, actualIsPlaying, optimisticIsPlaying, isPlaying]);
 
   const playback: PlaybackState = useMemo(
     () => ({

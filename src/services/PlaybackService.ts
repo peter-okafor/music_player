@@ -1,6 +1,31 @@
 import TrackPlayer, { Event, State } from 'react-native-track-player';
 
 export async function PlaybackService() {
+  console.log('🎵 PlaybackService initialized');
+
+  let wasPlaying = false;
+
+  // Track when playback state changes
+  TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
+    console.log('🎵 PlaybackState in service:', event.state);
+    wasPlaying = event.state === State.Playing || event.state === State.Buffering || event.state === State.Loading;
+  });
+
+  // When track changes, resume playback if we were playing
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, async (event) => {
+    console.log('🎵 PlaybackActiveTrackChanged in service:', event);
+
+    // If we were playing and track changed, auto-play the new track
+    if (wasPlaying && event.track) {
+      console.log('🎵 Auto-playing next track after change');
+      try {
+        await TrackPlayer.play();
+      } catch (e) {
+        console.warn('PlaybackService: Error auto-playing next track', e);
+      }
+    }
+  });
+
   TrackPlayer.addEventListener(Event.RemotePlay, () => {
     try {
       TrackPlayer.play();

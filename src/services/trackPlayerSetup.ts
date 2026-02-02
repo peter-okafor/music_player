@@ -11,6 +11,7 @@ export async function setupTrackPlayer(): Promise<boolean> {
   try {
     await TrackPlayer.setupPlayer({
       waitForBuffer: true,
+      autoHandleInterruptions: true,
     });
 
     await TrackPlayer.updateOptions({

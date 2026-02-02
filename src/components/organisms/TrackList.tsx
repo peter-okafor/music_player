@@ -45,7 +45,7 @@ function TrackListComponent({
         data={tracks}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        estimatedItemSize={68}
+        // estimatedItemSize={68}
         extraData={{ activeTrackId, isPlaying }}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.5}
