@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.musicplayer.data.model.PlaybackState
 import com.musicplayer.data.model.Track
 import com.musicplayer.data.repository.MediaRepository
+import com.musicplayer.data.repository.PlaylistRepository
 import com.musicplayer.player.PlaybackController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,13 +18,15 @@ import javax.inject.Inject
 enum class CategoryType {
     ALBUM,
     ARTIST,
-    FOLDER
+    FOLDER,
+    PLAYLIST
 }
 
 @HiltViewModel
 class CategoryDetailViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val mediaRepository: MediaRepository,
+    private val playlistRepository: PlaylistRepository,
     private val playbackController: PlaybackController
 ) : ViewModel() {
 
@@ -46,6 +49,7 @@ class CategoryDetailViewModel @Inject constructor(
                     CategoryType.ALBUM -> mediaRepository.loadTracksByAlbum(categoryId)
                     CategoryType.ARTIST -> mediaRepository.loadTracksByArtist(categoryId)
                     CategoryType.FOLDER -> mediaRepository.loadTracksByFolder(categoryId)
+                    CategoryType.PLAYLIST -> playlistRepository.loadPlaylistTracks(categoryId)
                 }
             } catch (e: Exception) {
                 android.util.Log.e("CategoryDetailViewModel", "Error loading tracks", e)

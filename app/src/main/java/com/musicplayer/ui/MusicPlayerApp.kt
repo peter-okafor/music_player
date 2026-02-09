@@ -174,6 +174,7 @@ fun MusicPlayerApp() {
                         "album" -> CategoryType.ALBUM
                         "artist" -> CategoryType.ARTIST
                         "folder" -> CategoryType.FOLDER
+                        "playlist" -> CategoryType.PLAYLIST
                         else -> CategoryType.ALBUM
                     }
 

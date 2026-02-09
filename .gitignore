@@ -1,0 +1,38 @@
+# Built application files
+*.apk
+*.aab
+*.ap_
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+build/
+app/build/
+
+# Gradle files
+.gradle/
+local.properties
+
+# Android Studio files
+.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google services (if you want to keep this file private)
+# google-services.json
+
+# Firebase crashlytics
+/app/build/crashlytics-output/
+
+# Profiler files
+*.hprof
