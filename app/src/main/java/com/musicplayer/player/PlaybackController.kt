@@ -231,7 +231,18 @@ class PlaybackController @Inject constructor(
     }
 
     fun addToQueue(tracks: List<Track>) {
-        val controller = mediaController ?: return
+        ensureConnected()
+        val controller = mediaController
+        if (controller == null) {
+            android.util.Log.w("PlaybackController", "MediaController not ready, cannot add to queue")
+            return
+        }
+
+        // If no tracks are currently playing, start playback with these tracks
+        if (currentTracks.isEmpty() || controller.mediaItemCount == 0) {
+            setQueue(tracks, 0)
+            return
+        }
 
         currentTracks = currentTracks + tracks
         originalTracks = originalTracks + tracks
@@ -253,6 +264,7 @@ class PlaybackController @Inject constructor(
         }
 
         updateQueueState()
+        android.util.Log.d("PlaybackController", "Added ${tracks.size} track(s) to queue. Total: ${currentTracks.size}")
     }
 
     fun selectTrack(index: Int) {

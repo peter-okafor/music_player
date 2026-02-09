@@ -48,4 +48,16 @@ class PlaylistsScreenViewModel @Inject constructor(
             }
         }
     }
+
+    fun deletePlaylist(playlistId: String) {
+        viewModelScope.launch {
+            try {
+                playlistRepository.deletePlaylist(playlistId)
+                // Reload playlists after deleting
+                loadPlaylists()
+            } catch (e: Exception) {
+                android.util.Log.e("PlaylistsScreenViewModel", "Error deleting playlist", e)
+            }
+        }
+    }
 }

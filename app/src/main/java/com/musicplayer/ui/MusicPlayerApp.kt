@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
@@ -57,6 +58,11 @@ fun MusicPlayerApp() {
     val playbackState by homeViewModel.playbackState.collectAsState()
     val currentTrack by homeViewModel.currentTrack.collectAsState()
 
+    // Track current route to hide mini player on PlayerScreen
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val showMiniPlayer = currentTrack != null && currentRoute != Screen.Player.route
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -80,7 +86,7 @@ fun MusicPlayerApp() {
                         onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
                         onNavigateToAlbums = { navController.navigate(Screen.Albums.route) },
                         onNavigateToArtists = { navController.navigate(Screen.Artists.route) },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
 
@@ -112,7 +118,7 @@ fun MusicPlayerApp() {
                                 Screen.CategoryDetail.createRoute("folder", path, name)
                             )
                         },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
 
@@ -124,7 +130,7 @@ fun MusicPlayerApp() {
                                 Screen.CategoryDetail.createRoute("playlist", id, name)
                             )
                         },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
 
@@ -136,7 +142,7 @@ fun MusicPlayerApp() {
                                 Screen.CategoryDetail.createRoute("album", id, name)
                             )
                         },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
 
@@ -148,7 +154,7 @@ fun MusicPlayerApp() {
                                 Screen.CategoryDetail.createRoute("artist", id, name)
                             )
                         },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
 
@@ -183,17 +189,13 @@ fun MusicPlayerApp() {
                         categoryId = id,
                         categoryName = name,
                         onNavigateBack = { navController.popBackStack() },
-                        bottomPadding = if (currentTrack != null) 70f else 0f
+                        bottomPadding = if (showMiniPlayer) 70f else 0f
                     )
                 }
             }
 
-            // Mini Player overlay at bottom
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-            ) {
+            // Mini Player overlay at bottom (hidden on PlayerScreen)
+            if (showMiniPlayer) {
                 MiniPlayer(
                     track = currentTrack,
                     isPlaying = playbackState.isPlaying,
@@ -202,7 +204,10 @@ fun MusicPlayerApp() {
                     } else 0f,
                     onTogglePlayPause = { homeViewModel.togglePlayPause() },
                     onNext = { homeViewModel.next() },
-                    onExpand = { navController.navigate(Screen.Player.route) }
+                    onExpand = { navController.navigate(Screen.Player.route) },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                 )
             }
         }

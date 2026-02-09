@@ -1,5 +1,6 @@
 package com.musicplayer.data.repository
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
@@ -98,6 +99,21 @@ class PlaylistRepository @Inject constructor(
         } catch (e: Exception) {
             android.util.Log.e("PlaylistRepository", "Error creating playlist", e)
             null
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    suspend fun deletePlaylist(playlistId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val uri = ContentUris.withAppendedId(
+                MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI,
+                playlistId.toLong()
+            )
+            val deleted = context.contentResolver.delete(uri, null, null)
+            deleted > 0
+        } catch (e: Exception) {
+            android.util.Log.e("PlaylistRepository", "Error deleting playlist", e)
+            false
         }
     }
 
