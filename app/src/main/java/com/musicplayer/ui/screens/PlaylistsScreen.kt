@@ -66,9 +66,34 @@ fun PlaylistsScreen(
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
+    var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.loadPlaylists()
+    }
+
+    // Delete confirmation dialog
+    if (playlistToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete Playlist") },
+            text = { Text("Are you sure you want to delete \"${playlistToDelete?.name}\"?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        playlistToDelete?.let { viewModel.deletePlaylist(it.id) }
+                        playlistToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Create playlist dialog
@@ -201,7 +226,8 @@ fun PlaylistsScreen(
                         items(playlists, key = { it.id }) { playlist ->
                             PlaylistItem(
                                 playlist = playlist,
-                                onClick = { onPlaylistClick(playlist.id, playlist.name) }
+                                onClick = { onPlaylistClick(playlist.id, playlist.name) },
+                                onDelete = { playlistToDelete = playlist }
                             )
                         }
                     }
@@ -214,8 +240,11 @@ fun PlaylistsScreen(
 @Composable
 private fun PlaylistItem(
     playlist: Playlist,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -254,6 +283,36 @@ private fun PlaylistItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+
+        Box {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Options",
+                    tint = TextSecondary
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                )
+            }
         }
     }
 }
