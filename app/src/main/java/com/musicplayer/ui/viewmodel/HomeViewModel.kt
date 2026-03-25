@@ -146,7 +146,11 @@ class HomeViewModel @Inject constructor(
         playbackController.next()
     }
 
-    fun addToQueue(track: Track) {
-        playbackController.addToQueue(listOf(track))
+    fun playNext(track: Track) {
+        playbackController.playNext(listOf(track))
+    }
+
+    fun playLater(track: Track) {
+        playbackController.playLater(listOf(track))
     }
 }

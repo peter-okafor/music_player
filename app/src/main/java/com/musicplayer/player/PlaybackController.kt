@@ -2,7 +2,6 @@ package com.musicplayer.player
 
 import android.content.ComponentName
 import android.content.Context
-import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -46,16 +45,13 @@ class PlaybackController @Inject constructor(
     private val _currentTrack = MutableStateFlow<Track?>(null)
     val currentTrack: StateFlow<Track?> = _currentTrack.asStateFlow()
 
-    // Store original track order for shuffle
-    private var originalTracks: List<Track> = emptyList()
-    private var currentTracks: List<Track> = emptyList()
+    // Track list that mirrors the player queue
+    private var currentTracks: MutableList<Track> = mutableListOf()
 
     private var isConnecting = false
 
     init {
-        // Delay connection to allow app to fully initialize
         scope.launch {
-            // delay(500)
             connectToService()
         }
     }
@@ -151,7 +147,7 @@ class PlaybackController @Inject constructor(
     private fun updateQueueState() {
         val controller = mediaController ?: return
         _queueState.value = QueueState(
-            tracks = currentTracks,
+            tracks = currentTracks.toList(),
             currentIndex = controller.currentMediaItemIndex,
             shuffleEnabled = controller.shuffleModeEnabled,
             repeatMode = when (controller.repeatMode) {
@@ -196,6 +192,9 @@ class PlaybackController @Inject constructor(
         mediaController?.seekTo(positionMs)
     }
 
+    /**
+     * Set the queue and start playing from the given index
+     */
     fun setQueue(tracks: List<Track>, startIndex: Int = 0) {
         ensureConnected()
         val controller = mediaController
@@ -204,23 +203,9 @@ class PlaybackController @Inject constructor(
             return
         }
 
-        originalTracks = tracks
-        currentTracks = tracks
+        currentTracks = tracks.toMutableList()
 
-        val mediaItems = tracks.map { track ->
-            MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(track.contentUri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setArtworkUri(track.artworkUri)
-                        .build()
-                )
-                .build()
-        }
+        val mediaItems = tracks.map { track -> createMediaItem(track) }
 
         controller.setMediaItems(mediaItems, startIndex, 0)
         controller.prepare()
@@ -228,9 +213,46 @@ class PlaybackController @Inject constructor(
 
         updateQueueState()
         updateCurrentTrack()
+
+        android.util.Log.d("PlaybackController", "Set queue with ${tracks.size} tracks, starting at $startIndex")
     }
 
-    fun addToQueue(tracks: List<Track>) {
+    /**
+     * Play Next - Insert track immediately after the current track
+     */
+    fun playNext(tracks: List<Track>) {
+        ensureConnected()
+        val controller = mediaController
+        if (controller == null) {
+            android.util.Log.w("PlaybackController", "MediaController not ready, cannot play next")
+            return
+        }
+
+        // If nothing is playing, start playback with these tracks
+        if (currentTracks.isEmpty() || controller.mediaItemCount == 0) {
+            setQueue(tracks, 0)
+            return
+        }
+
+        val currentIndex = controller.currentMediaItemIndex
+        val insertIndex = currentIndex + 1
+
+        // Insert into our track list
+        currentTracks.addAll(insertIndex.coerceAtMost(currentTracks.size), tracks)
+
+        // Insert into player
+        tracks.forEachIndexed { idx, track ->
+            controller.addMediaItem(insertIndex + idx, createMediaItem(track))
+        }
+
+        updateQueueState()
+        android.util.Log.d("PlaybackController", "Play Next: Added ${tracks.size} track(s) after position $currentIndex. Total: ${currentTracks.size}")
+    }
+
+    /**
+     * Play Later - Add track to the end of the queue
+     */
+    fun playLater(tracks: List<Track>) {
         ensureConnected()
         val controller = mediaController
         if (controller == null) {
@@ -238,33 +260,37 @@ class PlaybackController @Inject constructor(
             return
         }
 
-        // If no tracks are currently playing, start playback with these tracks
+        // If nothing is playing, start playback with these tracks
         if (currentTracks.isEmpty() || controller.mediaItemCount == 0) {
             setQueue(tracks, 0)
             return
         }
 
-        currentTracks = currentTracks + tracks
-        originalTracks = originalTracks + tracks
+        // Add to the end of our track list
+        currentTracks.addAll(tracks)
 
+        // Add to the end of the player queue
         tracks.forEach { track ->
-            val mediaItem = MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(track.contentUri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setArtworkUri(track.artworkUri)
-                        .build()
-                )
-                .build()
-            controller.addMediaItem(mediaItem)
+            controller.addMediaItem(createMediaItem(track))
         }
 
         updateQueueState()
-        android.util.Log.d("PlaybackController", "Added ${tracks.size} track(s) to queue. Total: ${currentTracks.size}")
+        android.util.Log.d("PlaybackController", "Play Later: Added ${tracks.size} track(s) to end. Total: ${currentTracks.size}")
+    }
+
+    private fun createMediaItem(track: Track): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(track.id)
+            .setUri(track.contentUri)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .setArtworkUri(track.artworkUri)
+                    .build()
+            )
+            .build()
     }
 
     fun selectTrack(index: Int) {
