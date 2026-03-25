@@ -95,7 +95,7 @@ fun ArtistsScreen(
                 items(artists, key = { it.id }) { artist ->
                     ArtistItem(
                         artist = artist,
-                        onClick = { onArtistClick(artist.id, artist.name) }
+                        onClick = { onArtistClick(artist.name, artist.name) }
                     )
                 }
             }
