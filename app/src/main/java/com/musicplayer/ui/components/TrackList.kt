@@ -22,8 +22,10 @@ fun TrackList(
     isPlaying: Boolean,
     isLoading: Boolean,
     onTrackClick: (Int) -> Unit,
-    onAddToQueue: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onPlayLater: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
+    onRemoveFromPlaylist: ((Track) -> Unit)? = null,
     onLoadMore: () -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier
@@ -41,8 +43,10 @@ fun TrackList(
                 isActive = track.id == activeTrackId,
                 isPlaying = track.id == activeTrackId && isPlaying,
                 onClick = { onTrackClick(index) },
-                onAddToQueue = { onAddToQueue(track) },
-                onAddToPlaylist = { onAddToPlaylist(track) }
+                onPlayNext = { onPlayNext(track) },
+                onPlayLater = { onPlayLater(track) },
+                onAddToPlaylist = { onAddToPlaylist(track) },
+                onRemoveFromPlaylist = onRemoveFromPlaylist?.let { { it(track) } }
             )
 
             // Load more when reaching near the end

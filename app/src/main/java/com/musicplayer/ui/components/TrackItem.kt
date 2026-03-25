@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -47,8 +49,10 @@ fun TrackItem(
     isActive: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onAddToQueue: () -> Unit,
+    onPlayNext: () -> Unit,
+    onPlayLater: () -> Unit,
     onAddToPlaylist: () -> Unit,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -136,10 +140,23 @@ fun TrackItem(
                 onDismissRequest = { showMenu = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("Add to queue") },
+                    text = { Text("Play next") },
                     onClick = {
                         showMenu = false
-                        onAddToQueue()
+                        onPlayNext()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.PlaylistPlay,
+                            contentDescription = null
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Play later") },
+                    onClick = {
+                        showMenu = false
+                        onPlayLater()
                     },
                     leadingIcon = {
                         Icon(
@@ -161,6 +178,22 @@ fun TrackItem(
                         )
                     }
                 )
+                if (onRemoveFromPlaylist != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remove from playlist") },
+                        onClick = {
+                            showMenu = false
+                            onRemoveFromPlaylist()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
             }
         }
     }

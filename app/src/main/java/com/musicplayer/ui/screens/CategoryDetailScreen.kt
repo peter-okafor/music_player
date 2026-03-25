@@ -13,6 +13,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,59 +53,78 @@ fun CategoryDetailScreen(
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var selectedTrackForPlaylist by remember { mutableStateOf<Track?>(null) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Observe error messages from ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.errorMessage.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     LaunchedEffect(categoryType, categoryId) {
         viewModel.loadTracks(categoryType, categoryId)
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // Header
-        Row(
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { paddingValues ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(paddingValues)
         ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back"
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
+                Text(
+                    text = categoryName,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .weight(1f)
                 )
             }
-            Text(
-                text = categoryName,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .weight(1f)
-            )
-        }
 
-        if (isLoading && tracks.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Primary)
+            if (isLoading && tracks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Primary)
+                }
+            } else {
+                TrackList(
+                    tracks = tracks,
+                    activeTrackId = currentTrack?.id,
+                    isPlaying = playbackState.isPlaying,
+                    isLoading = isLoading,
+                    onTrackClick = { index -> viewModel.onTrackSelected(index) },
+                    onPlayNext = { track -> viewModel.playNext(track) },
+                    onPlayLater = { track -> viewModel.playLater(track) },
+                    onAddToPlaylist = { track ->
+                        selectedTrackForPlaylist = track
+                        showPlaylistDialog = true
+                    },
+                    onRemoveFromPlaylist = if (categoryType == CategoryType.PLAYLIST) {
+                        { track -> viewModel.removeTrackFromPlaylist(track) }
+                    } else null,
+                    onLoadMore = { },
+                    contentPadding = PaddingValues(bottom = bottomPadding.dp)
+                )
             }
-        } else {
-            TrackList(
-                tracks = tracks,
-                activeTrackId = currentTrack?.id,
-                isPlaying = playbackState.isPlaying,
-                isLoading = isLoading,
-                onTrackClick = { index -> viewModel.onTrackSelected(index) },
-                onAddToQueue = { track -> viewModel.addToQueue(track) },
-                onAddToPlaylist = { track ->
-                    selectedTrackForPlaylist = track
-                    showPlaylistDialog = true
-                },
-                onLoadMore = { },
-                contentPadding = PaddingValues(bottom = bottomPadding.dp)
-            )
         }
     }
 
