@@ -4,15 +4,29 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -55,6 +71,22 @@ fun HomeScreen(
 
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var selectedTrackForPlaylist by remember { mutableStateOf<Track?>(null) }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+
+    // Filter tracks based on search query
+    val filteredTracks = remember(tracks, searchQuery) {
+        if (searchQuery.isBlank()) {
+            tracks
+        } else {
+            tracks.filter { track ->
+                track.title.contains(searchQuery, ignoreCase = true) ||
+                track.artist.contains(searchQuery, ignoreCase = true) ||
+                track.album.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
 
     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_AUDIO
@@ -83,11 +115,72 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
-            Text(
-                text = "Your Library",
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AnimatedVisibility(
+                    visible = !isSearchActive,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Your Library",
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = isSearchActive,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search songs...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Primary,
+                            cursorColor = Primary
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = { focusManager.clearFocus() }
+                        ),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = TextSecondary
+                            )
+                        }
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        if (isSearchActive) {
+                            searchQuery = ""
+                            isSearchActive = false
+                            focusManager.clearFocus()
+                        } else {
+                            isSearchActive = true
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                        contentDescription = if (isSearchActive) "Close search" else "Search",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             CategoryButtonsGrid(
                 onFoldersClick = onNavigateToFolders,
@@ -166,17 +259,25 @@ fun HomeScreen(
                     }
                 } else {
                     TrackList(
-                        tracks = tracks,
+                        tracks = filteredTracks,
                         activeTrackId = currentTrack?.id,
                         isPlaying = playbackState.isPlaying,
-                        isLoading = isLoading,
-                        onTrackClick = { index -> viewModel.onTrackSelected(index) },
-                        onAddToQueue = { track -> viewModel.addToQueue(track) },
+                        isLoading = isLoading && !isSearchActive,
+                        onTrackClick = { index ->
+                            // Find the actual index in the original tracks list
+                            val track = filteredTracks[index]
+                            val originalIndex = tracks.indexOf(track)
+                            if (originalIndex >= 0) {
+                                viewModel.onTrackSelected(originalIndex)
+                            }
+                        },
+                        onPlayNext = { track -> viewModel.playNext(track) },
+                        onPlayLater = { track -> viewModel.playLater(track) },
                         onAddToPlaylist = { track ->
                             selectedTrackForPlaylist = track
                             showPlaylistDialog = true
                         },
-                        onLoadMore = { viewModel.loadMore() },
+                        onLoadMore = { if (!isSearchActive) viewModel.loadMore() },
                         contentPadding = PaddingValues(bottom = bottomPadding.dp)
                     )
                 }
