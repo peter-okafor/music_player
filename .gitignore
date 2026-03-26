@@ -24,9 +24,10 @@ local.properties
 *.iws
 .DS_Store
 
-# Keystore files
+# Keystore files and signing credentials
 *.jks
 *.keystore
+keystore.properties
 
 # Google services (if you want to keep this file private)
 # google-services.json
