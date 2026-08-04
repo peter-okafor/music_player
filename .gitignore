@@ -37,3 +37,6 @@ keystore.properties
 
 # Profiler files
 *.hprof
+
+# Claude Code
+.claude/

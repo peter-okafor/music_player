@@ -2,6 +2,7 @@ package com.musicplayer.data.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -11,132 +12,109 @@ import com.musicplayer.data.model.Folder
 import com.musicplayer.data.model.Track
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Reads the on-device music library from MediaStore.
+ *
+ * The full track list is loaded once and cached in memory. Everything the UI
+ * needs — sorting, searching, favourites, album/artist/folder grouping — is
+ * then a cheap in-memory operation instead of a fresh content-resolver query,
+ * which is what makes instant search and re-sorting feel native.
+ */
 @Singleton
 class MediaRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    suspend fun loadTracks(
-        offset: Int = 0,
-        limit: Int = 50
-    ): List<Track> = withContext(Dispatchers.IO) {
-        val tracks = mutableListOf<Track>()
+    private val cacheLock = Mutex()
 
-        try {
-            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            }
+    private val _tracks = MutableStateFlow<List<Track>>(emptyList())
+    val tracks: StateFlow<List<Track>> = _tracks.asStateFlow()
 
-            val projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID,
-                MediaStore.Audio.Media.DURATION
-            )
+    private var loaded = false
 
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-            val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
-
-            context.contentResolver.query(
-                collection,
-                projection,
-                selection,
-                null,
-                sortOrder
-            )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-
-                // Skip to offset
-                if (offset > 0 && cursor.count > offset) {
-                    cursor.moveToPosition(offset - 1)
-                }
-
-                var count = 0
-                while (cursor.moveToNext() && count < limit) {
-                    val id = cursor.getLong(idColumn)
-                    val title = cursor.getString(titleColumn) ?: "Unknown"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val album = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val albumId = cursor.getLong(albumIdColumn)
-                    val duration = cursor.getLong(durationColumn)
-
-                    val contentUri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        id
-                    )
-
-                    val artworkUri = ContentUris.withAppendedId(
-                        Uri.parse("content://media/external/audio/albumart"),
-                        albumId
-                    )
-
-                    tracks.add(
-                        Track(
-                            id = id.toString(),
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            artworkUri = artworkUri,
-                            contentUri = contentUri,
-                            duration = duration
-                        )
-                    )
-                    count++
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading tracks", e)
+    private val audioCollection: Uri
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
 
-        tracks
+    private val trackProjection = arrayOf(
+        MediaStore.Audio.Media._ID,
+        MediaStore.Audio.Media.TITLE,
+        MediaStore.Audio.Media.ARTIST,
+        MediaStore.Audio.Media.ALBUM,
+        MediaStore.Audio.Media.ALBUM_ID,
+        MediaStore.Audio.Media.DURATION,
+        MediaStore.Audio.Media.TRACK,
+        MediaStore.Audio.Media.YEAR,
+        MediaStore.Audio.Media.DATE_ADDED,
+        MediaStore.Audio.Media.DATA
+    )
+
+    /** Loads (or returns the cached) full library. */
+    suspend fun getAllTracks(forceRefresh: Boolean = false): List<Track> = cacheLock.withLock {
+        if (loaded && !forceRefresh) return@withLock _tracks.value
+
+        val result = queryTracks(
+            selection = null,
+            selectionArgs = null,
+            sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+        )
+        _tracks.value = result
+        loaded = true
+        result
     }
 
-    suspend fun getAllTracks(): List<Track> = withContext(Dispatchers.IO) {
-        val allTracks = mutableListOf<Track>()
-        var offset = 0
-        val pageSize = 100
+    suspend fun refresh(): List<Track> = getAllTracks(forceRefresh = true)
 
-        while (true) {
-            val page = loadTracks(offset, pageSize)
-            if (page.isEmpty()) break
-            allTracks.addAll(page)
-            offset += pageSize
-        }
+    suspend fun loadTracksByAlbum(albumId: String): List<Track> = queryTracks(
+        selection = "${MediaStore.Audio.Media.ALBUM_ID} = ?",
+        selectionArgs = arrayOf(albumId),
+        sortOrder = "${MediaStore.Audio.Media.TRACK} ASC"
+    )
 
-        allTracks
+    suspend fun loadTracksByArtist(artistName: String): List<Track> = queryTracks(
+        selection = "${MediaStore.Audio.Media.ARTIST} = ?",
+        selectionArgs = arrayOf(artistName),
+        sortOrder = "${MediaStore.Audio.Media.ALBUM} ASC, ${MediaStore.Audio.Media.TRACK} ASC"
+    )
+
+    suspend fun loadTracksByFolder(folderPath: String): List<Track> = queryTracks(
+        selection = "${MediaStore.Audio.Media.DATA} LIKE ?",
+        selectionArgs = arrayOf("$folderPath/%"),
+        sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+    ).filter { it.filePath.substringBeforeLast("/") == folderPath }
+
+    /** Resolves a set of track ids, preserving the order they were given in. */
+    suspend fun loadTracksByIds(ids: List<String>): List<Track> {
+        if (ids.isEmpty()) return emptyList()
+        val byId = getAllTracks().associateBy { it.id }
+        return ids.mapNotNull { byId[it] }
     }
 
     suspend fun loadAlbums(): List<Album> = withContext(Dispatchers.IO) {
         val albums = mutableListOf<Album>()
-
         try {
-            val collection = MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI
-
-            val projection = arrayOf(
-                MediaStore.Audio.Albums._ID,
-                MediaStore.Audio.Albums.ALBUM,
-                MediaStore.Audio.Albums.ARTIST,
-                MediaStore.Audio.Albums.NUMBER_OF_SONGS
-            )
-
             context.contentResolver.query(
-                collection,
-                projection,
+                MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
+                arrayOf(
+                    MediaStore.Audio.Albums._ID,
+                    MediaStore.Audio.Albums.ALBUM,
+                    MediaStore.Audio.Albums.ARTIST,
+                    MediaStore.Audio.Albums.NUMBER_OF_SONGS
+                ),
                 null,
                 null,
-                "${MediaStore.Audio.Albums.ALBUM} ASC"
+                "${MediaStore.Audio.Albums.ALBUM} COLLATE NOCASE ASC"
             )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Albums._ID)
                 val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Albums.ALBUM)
@@ -145,127 +123,37 @@ class MediaRepository @Inject constructor(
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
-                    val name = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val trackCount = cursor.getInt(songsColumn)
-
-                    val artworkUri = ContentUris.withAppendedId(
-                        Uri.parse("content://media/external/audio/albumart"),
-                        id
-                    )
-
                     albums.add(
                         Album(
                             id = id.toString(),
-                            name = name,
-                            artist = artist,
-                            artworkUri = artworkUri,
-                            trackCount = trackCount
+                            name = cursor.getString(albumColumn) ?: "Unknown Album",
+                            artist = cursor.getString(artistColumn) ?: "Unknown Artist",
+                            artworkUri = albumArtUri(id),
+                            trackCount = cursor.getInt(songsColumn)
                         )
                     )
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading albums", e)
+            android.util.Log.e(TAG, "Error loading albums", e)
         }
-
         albums
-    }
-
-    suspend fun loadTracksByAlbum(albumId: String): List<Track> = withContext(Dispatchers.IO) {
-        val tracks = mutableListOf<Track>()
-
-        try {
-            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            }
-
-            val projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID,
-                MediaStore.Audio.Media.DURATION
-            )
-
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.ALBUM_ID} = ?"
-            val selectionArgs = arrayOf(albumId)
-            val sortOrder = "${MediaStore.Audio.Media.TRACK} ASC"
-
-            context.contentResolver.query(
-                collection,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idColumn)
-                    val title = cursor.getString(titleColumn) ?: "Unknown"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val album = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val albId = cursor.getLong(albumIdCol)
-                    val duration = cursor.getLong(durationColumn)
-
-                    val contentUri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        id
-                    )
-
-                    val artworkUri = ContentUris.withAppendedId(
-                        Uri.parse("content://media/external/audio/albumart"),
-                        albId
-                    )
-
-                    tracks.add(
-                        Track(
-                            id = id.toString(),
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            artworkUri = artworkUri,
-                            contentUri = contentUri,
-                            duration = duration
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading tracks by album", e)
-        }
-
-        tracks
     }
 
     suspend fun loadArtists(): List<Artist> = withContext(Dispatchers.IO) {
         val artists = mutableListOf<Artist>()
-
         try {
-            val collection = MediaStore.Audio.Artists.EXTERNAL_CONTENT_URI
-
-            val projection = arrayOf(
-                MediaStore.Audio.Artists._ID,
-                MediaStore.Audio.Artists.ARTIST,
-                MediaStore.Audio.Artists.NUMBER_OF_TRACKS,
-                MediaStore.Audio.Artists.NUMBER_OF_ALBUMS
-            )
-
             context.contentResolver.query(
-                collection,
-                projection,
+                MediaStore.Audio.Artists.EXTERNAL_CONTENT_URI,
+                arrayOf(
+                    MediaStore.Audio.Artists._ID,
+                    MediaStore.Audio.Artists.ARTIST,
+                    MediaStore.Audio.Artists.NUMBER_OF_TRACKS,
+                    MediaStore.Audio.Artists.NUMBER_OF_ALBUMS
+                ),
                 null,
                 null,
-                "${MediaStore.Audio.Artists.ARTIST} ASC"
+                "${MediaStore.Audio.Artists.ARTIST} COLLATE NOCASE ASC"
             )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Artists._ID)
                 val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Artists.ARTIST)
@@ -273,225 +161,111 @@ class MediaRepository @Inject constructor(
                 val albumsColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Artists.NUMBER_OF_ALBUMS)
 
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idColumn)
-                    val name = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val trackCount = cursor.getInt(tracksColumn)
-                    val albumCount = cursor.getInt(albumsColumn)
-
                     artists.add(
                         Artist(
-                            id = id.toString(),
-                            name = name,
-                            trackCount = trackCount,
-                            albumCount = albumCount
+                            id = cursor.getLong(idColumn).toString(),
+                            name = cursor.getString(artistColumn) ?: "Unknown Artist",
+                            trackCount = cursor.getInt(tracksColumn),
+                            albumCount = cursor.getInt(albumsColumn)
                         )
                     )
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading artists", e)
+            android.util.Log.e(TAG, "Error loading artists", e)
         }
-
         artists
     }
 
-    suspend fun loadTracksByArtist(artistName: String): List<Track> = withContext(Dispatchers.IO) {
-        val tracks = mutableListOf<Track>()
-
-        try {
-            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    suspend fun loadFolders(): List<Folder> {
+        val counts = mutableMapOf<String, Int>()
+        getAllTracks().forEach { track ->
+            if (track.filePath.isNotBlank()) {
+                val dir = track.filePath.substringBeforeLast("/")
+                counts[dir] = (counts[dir] ?: 0) + 1
             }
-
-            val projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID,
-                MediaStore.Audio.Media.DURATION
-            )
-
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.ARTIST} = ?"
-            val selectionArgs = arrayOf(artistName)
-            val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
-
-            context.contentResolver.query(
-                collection,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idColumn)
-                    val title = cursor.getString(titleColumn) ?: "Unknown"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val album = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val albumId = cursor.getLong(albumIdColumn)
-                    val duration = cursor.getLong(durationColumn)
-
-                    val contentUri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        id
-                    )
-
-                    val artworkUri = ContentUris.withAppendedId(
-                        Uri.parse("content://media/external/audio/albumart"),
-                        albumId
-                    )
-
-                    tracks.add(
-                        Track(
-                            id = id.toString(),
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            artworkUri = artworkUri,
-                            contentUri = contentUri,
-                            duration = duration
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading tracks by artist", e)
         }
-
-        tracks
-    }
-
-    suspend fun loadFolders(): List<Folder> = withContext(Dispatchers.IO) {
-        val foldersMap = mutableMapOf<String, Int>()
-
-        try {
-            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            }
-
-            val projection = arrayOf(
-                MediaStore.Audio.Media.DATA
-            )
-
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-
-            context.contentResolver.query(
-                collection,
-                projection,
-                selection,
-                null,
-                null
-            )?.use { cursor ->
-                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-
-                while (cursor.moveToNext()) {
-                    val path = cursor.getString(dataColumn) ?: continue
-                    val folderPath = path.substringBeforeLast("/")
-                    foldersMap[folderPath] = (foldersMap[folderPath] ?: 0) + 1
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading folders", e)
-        }
-
-        foldersMap.map { (path, count) ->
+        return counts.map { (path, count) ->
             Folder(
                 path = path,
                 name = path.substringAfterLast("/"),
                 trackCount = count
             )
-        }.sortedBy { it.name }
+        }.sortedBy { it.name.lowercase() }
     }
 
-    suspend fun loadTracksByFolder(folderPath: String): List<Track> = withContext(Dispatchers.IO) {
+    /** Finds the artwork for an artist by falling back to their first album. */
+    suspend fun artistArtwork(artistName: String): Uri? =
+        getAllTracks().firstOrNull { it.artist == artistName }?.artworkUri
+
+    // ------------------------------------------------------------- internals
+
+    private suspend fun queryTracks(
+        selection: String?,
+        selectionArgs: Array<String>?,
+        sortOrder: String
+    ): List<Track> = withContext(Dispatchers.IO) {
         val tracks = mutableListOf<Track>()
-
         try {
-            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            }
-
-            val projection = arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID,
-                MediaStore.Audio.Media.DURATION,
-                MediaStore.Audio.Media.DATA
-            )
-
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DATA} LIKE ?"
-            val selectionArgs = arrayOf("$folderPath/%")
-            val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
-
             context.contentResolver.query(
-                collection,
-                projection,
+                audioCollection,
+                trackProjection,
                 selection,
                 selectionArgs,
                 sortOrder
             )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-
+                val columns = TrackColumns(cursor)
                 while (cursor.moveToNext()) {
-                    val filePath = cursor.getString(dataColumn) ?: continue
-                    // Only include files directly in this folder, not subfolders
-                    if (filePath.substringBeforeLast("/") != folderPath) continue
-
-                    val id = cursor.getLong(idColumn)
-                    val title = cursor.getString(titleColumn) ?: "Unknown"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val album = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val albumId = cursor.getLong(albumIdColumn)
-                    val duration = cursor.getLong(durationColumn)
-
-                    val contentUri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        id
-                    )
-
-                    val artworkUri = ContentUris.withAppendedId(
-                        Uri.parse("content://media/external/audio/albumart"),
-                        albumId
-                    )
-
-                    tracks.add(
-                        Track(
-                            id = id.toString(),
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            artworkUri = artworkUri,
-                            contentUri = contentUri,
-                            duration = duration
-                        )
-                    )
+                    tracks.add(columns.read(cursor))
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("MediaRepository", "Error loading tracks by folder", e)
+            android.util.Log.e(TAG, "Track query failed", e)
         }
-
         tracks
+    }
+
+    private class TrackColumns(cursor: Cursor) {
+        val id = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+        val title = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+        val artist = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val album = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+        val albumId = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+        val duration = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+        val track = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
+        val year = cursor.getColumnIndex(MediaStore.Audio.Media.YEAR)
+        val dateAdded = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+        val data = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+
+        fun read(cursor: Cursor): Track {
+            val mediaId = cursor.getLong(id)
+            val albumIdValue = cursor.getLong(albumId)
+            // MediaStore encodes track numbers as disc*1000 + track.
+            val rawTrack = if (track >= 0) cursor.getInt(track) else 0
+            return Track(
+                id = mediaId.toString(),
+                title = cursor.getString(title) ?: "Unknown",
+                artist = cursor.getString(artist) ?: "Unknown Artist",
+                album = cursor.getString(album) ?: "Unknown Album",
+                artworkUri = MediaRepository.albumArtUri(albumIdValue),
+                contentUri = ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    mediaId
+                ),
+                duration = cursor.getLong(duration),
+                albumId = albumIdValue.toString(),
+                trackNumber = if (rawTrack > 1000) rawTrack % 1000 else rawTrack,
+                year = if (year >= 0) cursor.getInt(year) else 0,
+                dateAdded = if (dateAdded >= 0) cursor.getLong(dateAdded) else 0L,
+                filePath = if (data >= 0) cursor.getString(data).orEmpty() else ""
+            )
+        }
+    }
+
+    companion object {
+        private const val TAG = "MediaRepository"
+        private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
+
+        fun albumArtUri(albumId: Long): Uri = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
     }
 }

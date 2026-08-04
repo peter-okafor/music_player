@@ -1,41 +1,15 @@
 package com.musicplayer.di
 
-import android.content.Context
-import com.musicplayer.data.repository.MediaRepository
-import com.musicplayer.data.repository.PlaylistRepository
-import com.musicplayer.player.PlaybackController
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
 
+/**
+ * All singletons in this app are constructor-injected and annotated with
+ * `@Singleton`, so Hilt can build them without explicit `@Provides` methods.
+ * The module is kept as the anchor point for any future binding that does
+ * need manual construction.
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object AppModule {
-
-    @Provides
-    @Singleton
-    fun provideMediaRepository(
-        @ApplicationContext context: Context
-    ): MediaRepository {
-        return MediaRepository(context)
-    }
-
-    @Provides
-    @Singleton
-    fun providePlaybackController(
-        @ApplicationContext context: Context
-    ): PlaybackController {
-        return PlaybackController(context)
-    }
-
-    @Provides
-    @Singleton
-    fun providePlaylistRepository(
-        @ApplicationContext context: Context
-    ): PlaylistRepository {
-        return PlaylistRepository(context)
-    }
-}
+object AppModule

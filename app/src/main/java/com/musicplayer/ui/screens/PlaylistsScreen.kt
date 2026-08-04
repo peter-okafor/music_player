@@ -1,38 +1,22 @@
 package com.musicplayer.ui.screens
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,275 +28,181 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.musicplayer.data.model.Playlist
-import com.musicplayer.ui.theme.Primary
-import com.musicplayer.ui.theme.SurfaceLight
-import com.musicplayer.ui.theme.TextSecondary
+import com.musicplayer.ui.components.CollectionRow
+import com.musicplayer.ui.components.EmptyState
+import com.musicplayer.ui.components.LibraryHeader
+import com.musicplayer.ui.components.LoadingState
 import com.musicplayer.ui.viewmodel.PlaylistsScreenViewModel
 
 @Composable
 fun PlaylistsScreen(
+    onPlaylistClick: (id: String, name: String) -> Unit,
+    onNavigateBack: (() -> Unit)? = null,
     viewModel: PlaylistsScreenViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit,
-    onPlaylistClick: (String, String) -> Unit,
-    bottomPadding: Float = 0f
+    contentPadding: PaddingValues = PaddingValues(),
+    onMessage: (String) -> Unit = {}
 ) {
-    val playlists by viewModel.playlists.collectAsState()
+    val playlists by viewModel.visiblePlaylists.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val query by viewModel.query.collectAsState()
+    val searchActive by viewModel.searchActive.collectAsState()
+    val message by viewModel.message.collectAsState()
 
     var showCreateDialog by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
-    var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
+    var pendingDelete by remember { mutableStateOf<Playlist?>(null) }
 
-    LaunchedEffect(Unit) {
-        viewModel.loadPlaylists()
-    }
+    LaunchedEffect(Unit) { viewModel.load() }
 
-    // Delete confirmation dialog
-    if (playlistToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { playlistToDelete = null },
-            title = { Text("Delete Playlist") },
-            text = { Text("Are you sure you want to delete \"${playlistToDelete?.name}\"?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        playlistToDelete?.let { viewModel.deletePlaylist(it.id) }
-                        playlistToDelete = null
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { playlistToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Create playlist dialog
-    if (showCreateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create Playlist") },
-            text = {
-                OutlinedTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
-                    label = { Text("Playlist name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newPlaylistName.isNotBlank()) {
-                            viewModel.createPlaylist(newPlaylistName)
-                            newPlaylistName = ""
-                            showCreateDialog = false
-                        }
-                    }
-                ) {
-                    Text("Create", color = Primary)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showCreateDialog = false
-                    newPlaylistName = ""
-                }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true },
-                containerColor = Primary,
-                modifier = Modifier.padding(bottom = bottomPadding.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Create playlist"
-                )
-            }
+    LaunchedEffect(message) {
+        message?.let {
+            onMessage(it)
+            viewModel.consumeMessage()
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-                Text(
-                    text = "Playlists",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-            }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            LibraryHeader(
+                title = "Playlists",
+                subtitle = "${playlists.size} playlists",
+                searchQuery = query,
+                onSearchQueryChange = viewModel::setQuery,
+                searchActive = searchActive,
+                onSearchActiveChange = viewModel::setSearchActive,
+                searchPlaceholder = "Search playlists",
+                onNavigateBack = onNavigateBack
+            )
 
             when {
-                isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Primary)
+                isLoading && playlists.isEmpty() -> LoadingState()
+
+                playlists.isEmpty() -> EmptyState(
+                    title = if (query.isBlank()) "No playlists yet" else "No matching playlists",
+                    subtitle = if (query.isBlank()) {
+                        "Create one and start collecting the songs you keep coming back to."
+                    } else {
+                        "Nothing matches \"$query\"."
+                    },
+                    icon = Icons.Rounded.QueueMusic,
+                    actionLabel = if (query.isBlank()) "New playlist" else null,
+                    onAction = if (query.isBlank()) {
+                        { showCreateDialog = true }
+                    } else {
+                        null
                     }
-                }
-                playlists.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.QueueMusic,
-                                contentDescription = null,
-                                tint = TextSecondary,
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "No playlists yet",
-                                style = MaterialTheme.typography.titleLarge,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Tap the + button to create your first playlist",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            bottom = bottomPadding.dp + 80.dp // Extra padding for FAB
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(playlists, key = { it.id }) { playlist ->
-                            PlaylistItem(
-                                playlist = playlist,
+                )
+
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        bottom = contentPadding.calculateBottomPadding() + 88.dp
+                    )
+                ) {
+                    items(playlists, key = { it.id }) { playlist ->
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            CollectionRow(
+                                title = playlist.name,
+                                subtitle = "${playlist.trackCount} songs",
                                 onClick = { onPlaylistClick(playlist.id, playlist.name) },
-                                onDelete = { playlistToDelete = playlist }
+                                fallbackIcon = Icons.Rounded.QueueMusic,
+                                modifier = Modifier.padding(end = 44.dp)
                             )
+                            IconButton(
+                                onClick = { pendingDelete = playlist },
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 16.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Delete playlist"
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+
+        if (playlists.isNotEmpty()) {
+            ExtendedFloatingActionButton(
+                onClick = { showCreateDialog = true },
+                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                text = { Text("New playlist") },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = 20.dp,
+                        bottom = contentPadding.calculateBottomPadding() + 20.dp
+                    )
+            )
+        }
+    }
+
+    if (showCreateDialog) {
+        CreatePlaylistDialog(
+            onDismiss = { showCreateDialog = false },
+            onCreate = { name ->
+                viewModel.createPlaylist(name)
+                showCreateDialog = false
+            }
+        )
+    }
+
+    pendingDelete?.let { playlist ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete playlist?") },
+            text = { Text("\"${playlist.name}\" will be removed. The songs stay on your device.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deletePlaylist(playlist.id)
+                        pendingDelete = null
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 
 @Composable
-private fun PlaylistItem(
-    playlist: Playlist,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
+private fun CreatePlaylistDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(4.dp),
-            color = SurfaceLight
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.QueueMusic,
-                    contentDescription = null,
-                    tint = Primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
             )
-            Text(
-                text = "${playlist.trackCount} songs",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Box {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Options",
-                    tint = TextSecondary
-                )
-            }
-
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCreate(name.trim()) },
+                enabled = name.isNotBlank()
             ) {
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = {
-                        showMenu = false
-                        onDelete()
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                )
+                Text("Create")
             }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    }
+    )
 }

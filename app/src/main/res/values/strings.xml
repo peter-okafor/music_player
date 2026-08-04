@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Music Player</string>
+    <string name="playback_channel_name">Playback</string>
+    <string name="widget_name">Music Player controls</string>
+    <string name="widget_description">Play, pause and skip without opening the app.</string>
+    <string name="widget_nothing_playing">Nothing playing</string>
+    <string name="widget_tap_to_open">Tap to open Music Player</string>
+    <string name="cd_play">Play</string>
+    <string name="cd_pause">Pause</string>
+    <string name="cd_next">Next track</string>
+    <string name="cd_previous">Previous track</string>
+    <string name="cd_artwork">Album artwork</string>
 </resources>

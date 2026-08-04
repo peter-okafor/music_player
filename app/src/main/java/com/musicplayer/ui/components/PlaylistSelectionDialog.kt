@@ -1,187 +1,162 @@
 package com.musicplayer.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.musicplayer.data.model.Playlist
 import com.musicplayer.data.model.Track
-import com.musicplayer.ui.theme.Primary
 import com.musicplayer.ui.theme.TextSecondary
-import com.musicplayer.ui.viewmodel.PlaylistViewModel
 
+/**
+ * Picks a destination playlist for a track, with an inline "new playlist"
+ * path so the user never has to leave the dialog to create one.
+ */
 @Composable
 fun PlaylistSelectionDialog(
     track: Track,
-    viewModel: PlaylistViewModel = hiltViewModel(),
+    playlists: List<Playlist>,
     onDismiss: () -> Unit,
-    onPlaylistSelected: (String) -> Unit
+    onPlaylistSelected: (playlistId: String) -> Unit,
+    onCreatePlaylist: (name: String) -> Unit
 ) {
-    val playlists by viewModel.playlists.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    var creating by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
 
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        viewModel.loadPlaylists()
-    }
-
-    if (showCreateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create Playlist") },
-            text = {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Add to playlist")
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        text = {
+            if (creating) {
                 OutlinedTextField(
-                    value = newPlaylistName,
-                    onValueChange = { newPlaylistName = it },
+                    value = newName,
+                    onValueChange = { newName = it },
                     label = { Text("Playlist name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newPlaylistName.isNotBlank()) {
-                            viewModel.createPlaylistAndAddTrack(newPlaylistName, track)
-                            showCreateDialog = false
-                            onDismiss()
-                        }
-                    }
-                ) {
-                    Text("Create", color = Primary)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    } else {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("Add to playlist") },
-            text = {
+            } else {
                 Column {
-                    // Create new playlist option
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showCreateDialog = true }
+                            .clickable { creating = true }
                             .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = null,
-                            tint = Primary,
-                            modifier = Modifier.size(24.dp)
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Create new playlist",
+                            text = "New playlist",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = Primary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = Primary,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    } else if (playlists.isEmpty()) {
+                    if (playlists.isEmpty()) {
                         Text(
-                            text = "No playlists found",
+                            text = "No playlists yet.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
+                            color = TextSecondary,
+                            modifier = Modifier.padding(vertical = 8.dp)
                         )
                     } else {
-                        LazyColumn {
-                            items(playlists) { playlist ->
-                                PlaylistItem(
-                                    playlist = playlist,
-                                    onClick = {
-                                        viewModel.addTrackToPlaylist(playlist.id, track)
-                                        onPlaylistSelected(playlist.id)
+                        LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                            items(playlists, key = { it.id }) { playlist ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onPlaylistSelected(playlist.id) }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.QueueMusic,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = playlist.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${playlist.trackCount} songs",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary
+                                        )
                                     }
-                                )
+                                }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
             }
-        )
-    }
-}
-
-@Composable
-private fun PlaylistItem(
-    playlist: Playlist,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = Icons.Default.QueueMusic,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = "${playlist.trackCount} tracks",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-            )
+        },
+        confirmButton = {
+            if (creating) {
+                TextButton(
+                    onClick = {
+                        val name = newName.trim()
+                        if (name.isNotEmpty()) onCreatePlaylist(name)
+                    },
+                    enabled = newName.isNotBlank()
+                ) {
+                    Text("Create & add")
+                }
+            } else {
+                Spacer(modifier = Modifier.size(0.dp))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { if (creating) creating = false else onDismiss() }) {
+                Text(if (creating) "Back" else "Cancel")
+            }
         }
-    }
+    )
 }

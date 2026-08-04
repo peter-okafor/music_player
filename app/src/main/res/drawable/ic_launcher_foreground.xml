@@ -1,10 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:insetTop="18dp"
-    android:insetBottom="18dp"
-    android:insetLeft="18dp"
-    android:insetRight="18dp">
-    <bitmap
-        android:src="@drawable/logo"
-        android:gravity="center" />
-</inset>
+<!--
+    Adaptive icon foreground.
+
+    Pure vector (no bitmap) so the mark stays razor sharp at every launcher
+    density. All artwork sits inside the 66dp x 66dp safe zone of the 108dp
+    canvas (x/y from 21 to 87) so no part is clipped by the launcher mask.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer ring -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1DB954"
+        android:strokeWidth="2.6"
+        android:pathData="M24.5,54 a29.5,29.5 0 1,0 59,0 a29.5,29.5 0 1,0 -59,0 Z" />
+
+    <!-- Inner ring (subtle, echoes the record groove) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1DB954"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="1.2"
+        android:pathData="M29.5,54 a24.5,24.5 0 1,0 49,0 a24.5,24.5 0 1,0 -49,0 Z" />
+
+    <!-- Headphone band -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:pathData="M37,60 L37,53 A17,17 0 0 1 71,53 L71,60" />
+
+    <!-- Left ear cup -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,56 L38,56 A4,4 0 0 1 42,60 L42,68 A4,4 0 0 1 38,72 L36,72 A4,4 0 0 1 32,68 L32,60 A4,4 0 0 1 36,56 Z" />
+
+    <!-- Right ear cup -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,56 L72,56 A4,4 0 0 1 76,60 L76,68 A4,4 0 0 1 72,72 L70,72 A4,4 0 0 1 66,68 L66,60 A4,4 0 0 1 70,56 Z" />
+</vector>

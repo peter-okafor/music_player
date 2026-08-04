@@ -6,8 +6,11 @@ import com.musicplayer.data.model.Album
 import com.musicplayer.data.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -17,17 +20,32 @@ class AlbumsViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _albums = MutableStateFlow<List<Album>>(emptyList())
-    val albums: StateFlow<List<Album>> = _albums.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    fun loadAlbums() {
-        if (_isLoading.value) return
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
 
+    private val _searchActive = MutableStateFlow(false)
+    val searchActive: StateFlow<Boolean> = _searchActive.asStateFlow()
+
+    val visibleAlbums: StateFlow<List<Album>> = combine(_albums, _query) { albums, query ->
+        if (query.isBlank()) {
+            albums
+        } else {
+            albums.filter {
+                it.name.contains(query, ignoreCase = true) ||
+                    it.artist.contains(query, ignoreCase = true)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun load() {
+        if (_isLoading.value) return
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
                 _albums.value = mediaRepository.loadAlbums()
             } catch (e: Exception) {
                 android.util.Log.e("AlbumsViewModel", "Error loading albums", e)
@@ -35,5 +53,14 @@ class AlbumsViewModel @Inject constructor(
                 _isLoading.value = false
             }
         }
+    }
+
+    fun setQuery(value: String) {
+        _query.value = value
+    }
+
+    fun setSearchActive(active: Boolean) {
+        _searchActive.value = active
+        if (!active) _query.value = ""
     }
 }

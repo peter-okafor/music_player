@@ -1,13 +1,7 @@
 package com.musicplayer.ui.screens
 
-import android.Manifest
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,287 +11,194 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.musicplayer.data.model.Track
-import com.musicplayer.ui.components.CategoryButtonsGrid
-import com.musicplayer.ui.components.PlaylistSelectionDialog
-import com.musicplayer.ui.components.TrackList
-import com.musicplayer.ui.theme.Primary
+import com.musicplayer.ui.components.Artwork
+import com.musicplayer.ui.components.LibraryHeader
+import com.musicplayer.ui.components.QuickActionCard
+import com.musicplayer.ui.components.QuickActionRow
+import com.musicplayer.ui.components.SectionHeader
+import com.musicplayer.ui.theme.Radius
 import com.musicplayer.ui.theme.TextSecondary
 import com.musicplayer.ui.viewmodel.HomeViewModel
-import com.musicplayer.ui.viewmodel.PermissionStatus
 
 @Composable
 fun HomeScreen(
+    onOpenFavorites: () -> Unit,
+    onOpenFolders: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSongs: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
-    onNavigateToFolders: () -> Unit = {},
-    onNavigateToPlaylists: () -> Unit = {},
-    onNavigateToAlbums: () -> Unit = {},
-    onNavigateToArtists: () -> Unit = {},
-    bottomPadding: Float = 0f
+    contentPadding: PaddingValues = PaddingValues()
 ) {
-    val tracks by viewModel.tracks.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val permissionStatus by viewModel.permissionStatus.collectAsState()
-    val playbackState by viewModel.playbackState.collectAsState()
-    val currentTrack by viewModel.currentTrack.collectAsState()
+    val summary by viewModel.summary.collectAsState()
+    val recent by viewModel.recentTracks.collectAsState()
+    val mostPlayed by viewModel.mostPlayed.collectAsState()
+    val favorites by viewModel.favorites.collectAsState()
 
-    var showPlaylistDialog by remember { mutableStateOf(false) }
-    var selectedTrackForPlaylist by remember { mutableStateOf<Track?>(null) }
-    var isSearchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
+    LaunchedEffect(Unit) { viewModel.refresh() }
 
-    // Filter tracks based on search query
-    val filteredTracks = remember(tracks, searchQuery) {
-        if (searchQuery.isBlank()) {
-            tracks
-        } else {
-            tracks.filter { track ->
-                track.title.contains(searchQuery, ignoreCase = true) ||
-                track.artist.contains(searchQuery, ignoreCase = true) ||
-                track.album.contains(searchQuery, ignoreCase = true)
-            }
-        }
-    }
-
-    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_AUDIO
-    } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        viewModel.onPermissionResult(isGranted)
-    }
-
-    LaunchedEffect(permissionStatus) {
-        if (permissionStatus == PermissionStatus.UNDETERMINED) {
-            permissionLauncher.launch(permission)
-        }
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding
     ) {
-        // Header
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AnimatedVisibility(
-                    visible = !isSearchActive,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = "Your Library",
-                        style = MaterialTheme.typography.displayLarge,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = isSearchActive,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search songs...") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Primary,
-                            cursorColor = Primary
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = { focusManager.clearFocus() }
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                tint = TextSecondary
-                            )
-                        }
-                    )
-                }
-
-                IconButton(
-                    onClick = {
-                        if (isSearchActive) {
-                            searchQuery = ""
-                            isSearchActive = false
-                            focusManager.clearFocus()
-                        } else {
-                            isSearchActive = true
-                        }
+        item {
+            LibraryHeader(
+                title = "Your library",
+                subtitle = "${summary.trackCount} songs · ${summary.albumCount} albums",
+                actions = {
+                    IconButton(onClick = onOpenEqualizer) {
+                        Icon(Icons.Rounded.Equalizer, contentDescription = "Equalizer")
                     }
-                ) {
-                    Icon(
-                        imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = if (isSearchActive) "Close search" else "Search",
-                        modifier = Modifier.size(24.dp)
-                    )
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            CategoryButtonsGrid(
-                onFoldersClick = onNavigateToFolders,
-                onPlaylistsClick = onNavigateToPlaylists,
-                onAlbumsClick = onNavigateToAlbums,
-                onArtistsClick = onNavigateToArtists
             )
         }
 
-        when (permissionStatus) {
-            PermissionStatus.UNDETERMINED -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = Primary)
+        item {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                QuickActionRow {
+                    QuickActionCard(
+                        title = "Shuffle all",
+                        subtitle = "${summary.trackCount} songs",
+                        icon = Icons.Rounded.Shuffle,
+                        onClick = viewModel::shuffleAll,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickActionCard(
+                        title = "Favourites",
+                        subtitle = "${favorites.size} songs",
+                        icon = Icons.Rounded.Favorite,
+                        onClick = onOpenFavorites,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-            }
-
-            PermissionStatus.DENIED -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Permission Required",
-                            style = MaterialTheme.typography.titleLarge,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Please grant access to your music library to use this app.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { permissionLauncher.launch(permission) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Primary
-                            )
-                        ) {
-                            Text("Grant Permission")
-                        }
-                    }
-                }
-            }
-
-            PermissionStatus.GRANTED -> {
-                if (tracks.isEmpty() && isLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Primary)
-                    }
-                } else if (tracks.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No music found on your device",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                } else {
-                    TrackList(
-                        tracks = filteredTracks,
-                        activeTrackId = currentTrack?.id,
-                        isPlaying = playbackState.isPlaying,
-                        isLoading = isLoading && !isSearchActive,
-                        onTrackClick = { index ->
-                            // Find the actual index in the original tracks list
-                            val track = filteredTracks[index]
-                            val originalIndex = tracks.indexOf(track)
-                            if (originalIndex >= 0) {
-                                viewModel.onTrackSelected(originalIndex)
-                            }
-                        },
-                        onPlayNext = { track -> viewModel.playNext(track) },
-                        onPlayLater = { track -> viewModel.playLater(track) },
-                        onAddToPlaylist = { track ->
-                            selectedTrackForPlaylist = track
-                            showPlaylistDialog = true
-                        },
-                        onLoadMore = { if (!isSearchActive) viewModel.loadMore() },
-                        contentPadding = PaddingValues(bottom = bottomPadding.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+                QuickActionRow {
+                    QuickActionCard(
+                        title = "Folders",
+                        subtitle = "Browse by location",
+                        icon = Icons.Rounded.Folder,
+                        onClick = onOpenFolders,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickActionCard(
+                        title = "Queue",
+                        subtitle = "Now playing",
+                        icon = Icons.Rounded.QueueMusic,
+                        onClick = onOpenQueue,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
-    }
 
-    // Playlist selection dialog
-    if (showPlaylistDialog && selectedTrackForPlaylist != null) {
-        PlaylistSelectionDialog(
-            track = selectedTrackForPlaylist!!,
-            onDismiss = {
-                showPlaylistDialog = false
-                selectedTrackForPlaylist = null
-            },
-            onPlaylistSelected = { playlistId ->
-                // TODO: Add track to playlist
-                showPlaylistDialog = false
-                selectedTrackForPlaylist = null
+        if (recent.isNotEmpty()) {
+            item { Spacer(modifier = Modifier.height(28.dp)) }
+            item { SectionHeader(title = "Jump back in", action = "All songs", onAction = onOpenSongs) }
+            item {
+                TrackCarousel(
+                    tracks = recent,
+                    onTrackClick = { track -> viewModel.playTrack(track, recent) }
+                )
             }
-        )
+        }
+
+        if (mostPlayed.isNotEmpty()) {
+            item { Spacer(modifier = Modifier.height(28.dp)) }
+            item { SectionHeader(title = "Most played") }
+            item {
+                TrackCarousel(
+                    tracks = mostPlayed,
+                    onTrackClick = { track -> viewModel.playTrack(track, mostPlayed) }
+                )
+            }
+        }
+
+        if (recent.isEmpty() && mostPlayed.isEmpty()) {
+            item { Spacer(modifier = Modifier.height(28.dp)) }
+            item {
+                Text(
+                    text = "Play something and your recents will show up here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun TrackCarousel(
+    tracks: List<Track>,
+    onTrackClick: (Track) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(tracks, key = { it.id }) { track ->
+            Column(
+                modifier = Modifier
+                    .width(132.dp)
+                    .clip(Radius.card)
+                    .clickable { onTrackClick(track) }
+                    .padding(4.dp)
+            ) {
+                Artwork(
+                    uri = track.artworkUri,
+                    size = 124.dp,
+                    shape = Radius.artworkMedium,
+                    placeholderIconSize = 36.dp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }

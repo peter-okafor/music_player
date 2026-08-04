@@ -1,13 +1,17 @@
 package com.musicplayer.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.musicplayer.data.model.Artist
 import com.musicplayer.data.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -17,23 +21,51 @@ class ArtistsViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _artists = MutableStateFlow<List<Artist>>(emptyList())
-    val artists: StateFlow<List<Artist>> = _artists.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    fun loadArtists() {
-        if (_isLoading.value) return
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
 
+    private val _searchActive = MutableStateFlow(false)
+    val searchActive: StateFlow<Boolean> = _searchActive.asStateFlow()
+
+    /** Artist name -> artwork of one of their tracks, for the avatar. */
+    private val _artwork = MutableStateFlow<Map<String, Uri?>>(emptyMap())
+    val artwork: StateFlow<Map<String, Uri?>> = _artwork.asStateFlow()
+
+    val visibleArtists: StateFlow<List<Artist>> = combine(_artists, _query) { artists, query ->
+        if (query.isBlank()) {
+            artists
+        } else {
+            artists.filter { it.name.contains(query, ignoreCase = true) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun load() {
+        if (_isLoading.value) return
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
                 _artists.value = mediaRepository.loadArtists()
+                _artwork.value = mediaRepository.getAllTracks()
+                    .groupBy { it.artist }
+                    .mapValues { (_, tracks) -> tracks.firstOrNull()?.artworkUri }
             } catch (e: Exception) {
                 android.util.Log.e("ArtistsViewModel", "Error loading artists", e)
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    fun setQuery(value: String) {
+        _query.value = value
+    }
+
+    fun setSearchActive(active: Boolean) {
+        _searchActive.value = active
+        if (!active) _query.value = ""
     }
 }
